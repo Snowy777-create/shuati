@@ -63,6 +63,12 @@ select,.btn{padding:8px 14px;border-radius:8px;border:1px solid #e5e7eb;border:1
   .answer-sheet>*{margin:0}
   .answer-sheet{-ms-grid-gap:6px;grid-gap:6px;gap:6px}
 }
+.sheet-bar{display:-webkit-flex;display:flex;-webkit-box-align:center;-webkit-align-items:center;align-items:center;-webkit-box-pack:justify;-webkit-justify-content:space-between;justify-content:space-between;padding:10px 12px;background:#f8fafc;border:1px solid #e5e7eb;border:1px solid var(--line,#e5e7eb);border-radius:10px;cursor:pointer;margin-top:10px;font-size:13px;color:#1f2937;color:var(--text,#1f2937)}
+.sheet-bar:hover{border-color:#1a73e8;border-color:var(--primary,#1a73e8)}
+.sheet-bar span{pointer-events:none}
+.sheet-arrow{color:#6b7280;color:var(--sub,#6b7280);-webkit-transition:-webkit-transform .15s;transition:transform .15s;display:inline-block}
+.sheet-arrow.open{-webkit-transform:rotate(180deg);transform:rotate(180deg)}
+.sheet-foot{display:none;margin-top:10px}
 .as-item{position:relative;height:36px;line-height:36px;text-align:center;border-radius:8px;background:#f1f5f9;font-size:13px;cursor:pointer;border:1px solid transparent;-webkit-flex:0 0 38px;flex:0 0 38px;width:38px}
 .as-item.cur{border-color:#1a73e8;border-color:var(--primary,#1a73e8);background:#eff6ff;color:#1a73e8;color:var(--primary,#1a73e8);font-weight:700}
 .as-item.done{background:#dbeafe}
@@ -155,7 +161,15 @@ select,.btn{padding:8px 14px;border-radius:8px;border:1px solid #e5e7eb;border:1
       <span class="badge" id="quizPos">0 / 0</span>
     </div>
     <div id="quizArea"></div>
-    <div class="answer-sheet" id="answerSheet"></div>
+    <div class="sheet-bar" onclick="toggleSheet()">
+      <span>答题卡</span>
+      <span id="sheetSummary">已答 0/0</span>
+      <span class="sheet-arrow" id="sheetArrow">▾</span>
+    </div>
+    <div class="answer-sheet" id="answerSheet" style="display:none"></div>
+    <div class="sheet-foot" id="sheetFoot">
+      <button class="btn" style="width:100%" onclick="submitExam()">交卷评分</button>
+    </div>
     <div class="nav">
       <button class="btn ghost" id="btnPrev" onclick="prevQ()">上一题</button>
       <button class="btn" id="btnSubmit" onclick="submitQ()">提交答案</button>
@@ -187,8 +201,10 @@ select,.btn{padding:8px 14px;border-radius:8px;border:1px solid #e5e7eb;border:1
     <div style="display:-webkit-flex;display:flex;gap:10px;-webkit-box-pack:center;-webkit-justify-content:center;justify-content:center;margin-bottom:6px">
       <select id="examCount" style="padding:8px;border-radius:8px;border:1px solid #e5e7eb;border:1px solid var(--line,#e5e7eb)">
         <option value="10">10 题</option>
-        <option value="20" selected>20 题</option>
+        <option value="20">20 题</option>
         <option value="30">30 题</option>
+        <option value="50">50 题</option>
+        <option value="100" selected>100 题</option>
         <option value="0">全部（当前筛选）</option>
       </select>
     </div>
@@ -292,7 +308,7 @@ function renderWelcome(){
   var filtered=getFiltered();
   var html='<div style="font-size:13px;color:#6b7280;color:var(--sub,#6b7280);line-height:1.8">';
   html+='<p>· 当前筛选条件下共有 <b>'+filtered.length+'</b> 道题</p>';
-  html+='<p>· 点击上方"顺序练习"按顺序刷题，"随机练习"打乱顺序，多选/判断同样支持</p>';
+  html+='<p>· 点击上方"顺序练习"按顺序刷题，"随机练习"默认随机抽取100道（不足100道时取全部）</p>';
   html+='<p>· "模拟考试"从当前筛选中随机抽题并统一评分；答错题目自动进入错题回顾</p>';
   html+='<p>· 进度自动保存在本机浏览器（localStorage）</p></div>';
   el.innerHTML=html;
@@ -318,7 +334,10 @@ function onFilterChange(){
 function startPractice(randomOrder){
   var list=getFiltered();
   if(!list.length){alert('当前筛选条件下没有题目');return;}
-  if(randomOrder) list=shuffle(list);
+  if(randomOrder){
+    list=shuffle(list);
+    if(list.length>100) list=list.slice(0,100); // 随机练习默认 100 道
+  }
   SESSION={mode:'practice', items:list, cur:0, answers:{}, submitted:{}, source:null};
   document.getElementById('quizCard').style.display='block';
   document.getElementById('welcomeCard').style.display='none';
@@ -452,6 +471,11 @@ function renderQ(){
   document.getElementById('btnPrev').disabled=(s.cur===0);
   document.getElementById('btnNext').disabled=(s.cur===s.items.length-1);
   document.getElementById('btnSubmit').textContent = (s.mode==='exam') ? '交卷评分' : '提交答案';
+  // 折叠栏：已作答汇总（已选答案即算已作答）
+  var ac=0;
+  for(var ai=0;ai<s.items.length;ai++){ if(s.answers[ai]&&s.answers[ai].length>0) ac++; }
+  document.getElementById('sheetSummary').textContent='已答 '+ac+'/'+s.items.length;
+  document.getElementById('sheetFoot').style.display = (s.mode==='exam') ? 'block' : 'none';
 }
 
 function toggleOpt(i){
@@ -501,6 +525,12 @@ function normalizeAns(a){
 function nextQ(){ var s=SESSION; if(s.cur<s.items.length-1){ s.cur++; renderQ(); } }
 function prevQ(){ var s=SESSION; if(s.cur>0){ s.cur--; renderQ(); } }
 function jumpQ(i){ SESSION.cur=i; renderQ(); }
+function toggleSheet(){
+  var as=document.getElementById('answerSheet');
+  var ar=document.getElementById('sheetArrow');
+  if(as.style.display==='none'){ as.style.display=''; ar.className='sheet-arrow open'; }
+  else { as.style.display='none'; ar.className='sheet-arrow'; }
+}
 function finishSession(){
   var s=SESSION;
   if(s.mode==='exam'){ submitExam(); return; }
