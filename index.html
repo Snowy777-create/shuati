@@ -63,11 +63,18 @@ select,.btn{padding:8px 14px;border-radius:8px;border:1px solid #e5e7eb;border:1
   .answer-sheet>*{margin:0}
   .answer-sheet{-ms-grid-gap:6px;grid-gap:6px;gap:6px}
 }
-.as-item{height:36px;line-height:36px;text-align:center;border-radius:8px;background:#f1f5f9;font-size:13px;cursor:pointer;border:1px solid transparent;-webkit-flex:0 0 38px;flex:0 0 38px;width:38px}
+.as-item{position:relative;height:36px;line-height:36px;text-align:center;border-radius:8px;background:#f1f5f9;font-size:13px;cursor:pointer;border:1px solid transparent;-webkit-flex:0 0 38px;flex:0 0 38px;width:38px}
 .as-item.cur{border-color:#1a73e8;border-color:var(--primary,#1a73e8);background:#eff6ff;color:#1a73e8;color:var(--primary,#1a73e8);font-weight:700}
 .as-item.done{background:#dbeafe}
 .as-item.wrong{background:#fee2e2;color:#dc2626;color:var(--err,#dc2626)}
 .as-item.right{background:#dcfce7;color:#16a34a;color:var(--ok,#16a34a)}
+.as-item.answered{background:#dbeafe;color:#1d4ed8;font-weight:700}
+.as-item.answered::after{content:'✓';position:absolute;top:-2px;right:1px;font-size:11px;color:#1d4ed8;font-weight:700}
+.as-item.unanswered{background:#f1f5f9;color:#9ca3af}
+.as-item.unanswered::after{content:'未答';position:absolute;bottom:0;left:0;right:0;font-size:9px;line-height:10px;color:#9ca3af}
+.meta-right{color:#16a34a;color:var(--ok,#16a34a);font-weight:700}
+.meta-wrong{color:#dc2626;color:var(--err,#dc2626);font-weight:700}
+.meta-unanswered{color:#9ca3af;font-weight:700}
 .quiz-list-item{border:1px solid #e5e7eb;border:1px solid var(--line,#e5e7eb);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer}
 .quiz-list-item:hover{border-color:#1a73e8;border-color:var(--primary,#1a73e8)}
 .quiz-list-item .q{font-size:14px;line-height:1.6;margin-bottom:4px;word-break:break-word}
@@ -199,6 +206,7 @@ select,.btn{padding:8px 14px;border-radius:8px;border:1px solid #e5e7eb;border:1
     <h3 id="scoreTitle">成绩</h3>
     <div class="score" id="scoreNum">0</div>
     <div class="score-sub" id="scoreSub"></div>
+    <div id="scoreNote" style="font-size:12px;color:#6b7280;color:var(--sub,#6b7280);margin-bottom:12px">得分按已作答题目计算；未作答题目标记为"未答"，不计入得分</div>
     <div class="row" style="-webkit-box-pack:center;-webkit-justify-content:center;justify-content:center">
       <button class="btn" onclick="closeScore()">查看明细</button>
       <button class="btn ghost" onclick="retryExam()">再考一次</button>
@@ -353,10 +361,13 @@ function showWrong(){
   var el=document.getElementById('listArea');
   if(!items.length){ el.innerHTML='<div class="empty">暂无错题，继续加油！</div>'; return; }
   var html='';
+  var p0=loadProgress();
   items.forEach(function(q,i){
+    var st=p0.done[q.id];
+    var badge = st ? '<span class="meta-right">✓ 已答对</span>' : '<span class="meta-wrong">待重练</span>';
     html+='<div class="quiz-list-item" onclick="practiceWrong('+i+')">';
     html+='<div class="q">'+(i+1)+'. '+esc(q.question)+'</div>';
-    html+='<div class="meta">'+typeName(q.type)+' · '+esc(q.point)+' · 难度'+diffName(q.difficulty)+'</div>';
+    html+='<div class="meta">'+typeName(q.type)+' · '+esc(q.point)+' · 难度'+diffName(q.difficulty)+' '+badge+'</div>';
     html+='</div>';
   });
   el.innerHTML=html;
@@ -419,13 +430,20 @@ function renderQ(){
   area.innerHTML=html;
   // 答题卡
   var as='';
+  var p=loadProgress();
   s.items.forEach(function(qq,i){
     var cls='as-item';
+    var hasAns=s.answers[i] && s.answers[i].length>0;
     if(i===s.cur) cls+=' cur';
     if(s.submitted[i]){
-      var p=loadProgress();
-      if(s.mode==='practice') cls+=' '+(p.done[qq.id]?'right':'wrong');
-      else cls+=' '+(isAnsRight(qq, s.answers[i]||[])?'right':'wrong');
+      if(s.mode==='exam'){
+        if(hasAns) cls+=' '+(isAnsRight(qq, s.answers[i])?'right':'wrong');
+        else cls+=' unanswered';
+      } else {
+        cls+=' '+(p.done[qq.id]?'right':'wrong');
+      }
+    } else if(hasAns){
+      cls+=' answered';
     }
     as+='<div class="'+cls+'" onclick="jumpQ('+i+')">'+(i+1)+'</div>';
   });
@@ -433,6 +451,7 @@ function renderQ(){
   document.getElementById('quizPos').textContent=(s.cur+1)+' / '+s.items.length;
   document.getElementById('btnPrev').disabled=(s.cur===0);
   document.getElementById('btnNext').disabled=(s.cur===s.items.length-1);
+  document.getElementById('btnSubmit').textContent = (s.mode==='exam') ? '交卷评分' : '提交答案';
 }
 
 function toggleOpt(i){
@@ -453,10 +472,10 @@ function toggleOpt(i){
 function submitQ(){
   var s=SESSION;
   if(s.submitted[s.cur]){ nextQ(); return; }
+  if(s.mode==='exam'){ submitExam(); return; } // 考试模式：直接提交所有已作答题目并评分
   var q=s.items[s.cur];
   var sel=s.answers[s.cur]||[];
   if(!sel.length){ document.getElementById('pendingTip').innerHTML='<div class="result-box bad show"><b>请先选择答案</b></div>'; return; }
-  if(s.mode==='exam'){ return; } // 考试模式交卷时才判定
   s.submitted[s.cur]=true;
   var ok=isAnsRight(q, sel);
   var p=loadProgress();
@@ -499,31 +518,63 @@ function submitExam(){
   var s=SESSION;
   if(!s.mode) return;
   var unanswered=s.items.filter(function(q,i){ return !s.answers[i]||!s.answers[i].length; });
-  if(unanswered.length && !confirm('还有 '+unanswered.length+' 题未作答，确定交卷？')) return;
-  var right=0, wrong=0;
+  if(unanswered.length && !confirm('还有 '+unanswered.length+' 题未作答，确定交卷？（仅对已作答题目评分）')) return;
+  var right=0, answeredCount=0, total=s.items.length;
+  var p=loadProgress();
   s.items.forEach(function(q,i){
     var sel=s.answers[i]||[];
-    var ok=isAnsRight(q,sel);
+    var hasAns=sel.length>0;
     s.submitted[i]=true;
-    if(ok) right++; else wrong++;
-    var p=loadProgress();
-    if(ok){ p.done[q.id]=true; delete p.wrong[q.id]; }
+    if(!hasAns) return; // 未作答：标记为未答，不参与评分
+    answeredCount++;
+    var ok=isAnsRight(q,sel);
+    if(ok){ right++; p.done[q.id]=true; delete p.wrong[q.id]; }
     else { p.done[q.id]=false; p.wrong[q.id]=true; }
-    saveProgress(p);
   });
+  saveProgress(p);
   renderStats();
-  var score=Math.round(right/s.items.length*100);
+  var un=total-answeredCount;
+  var score = answeredCount>0 ? Math.round(right/answeredCount*100) : 0;
   document.getElementById('scoreNum').textContent=score+'分';
-  document.getElementById('scoreSub').textContent='答对 '+right+' / '+s.items.length+' 题';
+  document.getElementById('scoreSub').textContent='答对 '+right+' / 已作答 '+answeredCount+' 题 · 未答 '+un+' / 共 '+total+' 题';
   document.getElementById('scoreTitle').textContent='模拟考试结果';
   document.getElementById('scoreModal').classList.add('show');
   renderQ();
 }
 function closeScore(){
   document.getElementById('scoreModal').classList.remove('show');
+  showExamDetail();
+}
+function showExamDetail(){
+  var s=SESSION;
+  if(!s || !s.items || !s.items.length) return;
+  document.getElementById('listCard').style.display='block';
   document.getElementById('quizCard').style.display='none';
-  document.getElementById('welcomeCard').style.display='block';
-  renderWelcome(); renderStats();
+  document.getElementById('welcomeCard').style.display='none';
+  document.getElementById('listTitle').textContent='考试结果明细（'+s.items.length+' 题）';
+  var html='';
+  s.items.forEach(function(q,i){
+    var sel=s.answers[i]||[];
+    var hasAns=sel.length>0;
+    var badge, mcls;
+    if(!hasAns){ badge='未答'; mcls='meta-unanswered'; }
+    else if(isAnsRight(q,sel)){ badge='✓ 答对'; mcls='meta-right'; }
+    else { badge='✗ 答错'; mcls='meta-wrong'; }
+    html+='<div class="quiz-list-item" onclick="jumpToExamQ('+i+')">';
+    html+='<div class="q">'+(i+1)+'. '+esc(q.question)+'</div>';
+    html+='<div class="meta">'+typeName(q.type)+' · '+esc(q.point)+' <span class="'+mcls+'">'+badge+'</span></div>';
+    html+='</div>';
+  });
+  document.getElementById('listArea').innerHTML=html;
+  renderStats();
+}
+function jumpToExamQ(i){
+  var s=SESSION;
+  if(!s || !s.items[i]) return;
+  s.cur=i;
+  document.getElementById('listCard').style.display='none';
+  document.getElementById('quizCard').style.display='block';
+  renderQ();
 }
 function retryExam(){
   document.getElementById('scoreModal').classList.remove('show');
